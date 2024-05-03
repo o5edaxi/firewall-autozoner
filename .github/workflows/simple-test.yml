@@ -28,12 +28,12 @@ jobs:
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
     - name: Run test.py
       run: |
-        python3 fw_autozoner.py -s -1 "SRC_IP" -2 "DEST_IP" -n -x "CRITICAL" -o "zoned-test-0.csv" "policy-example.csv" "rib-example.csv"
+        python3 firewall_autozoner.py -s -1 "SRC_IP" -2 "DEST_IP" -n -x "CRITICAL" -o "zoned-test-0.csv" "policy-example.csv" "rib-example.csv"
         cmp --silent zoned-example-0.csv zoned-test-0.csv
-        python3 fw_autozoner.py -s -1 "SRC_IP" -2 "DEST_IP" -n -z 7 -x "CRITICAL" -o "zoned-test-1.csv" "policy-example.csv" "rib-example.csv"
+        python3 firewall_autozoner.py -s -1 "SRC_IP" -2 "DEST_IP" -n -z 7 -x "CRITICAL" -o "zoned-test-1.csv" "policy-example.csv" "rib-example.csv"
         cmp --silent zoned-example-1.csv zoned-test-1.csv
-        python3 fw_autozoner.py -s -1 "SRC_IP" -2 "DEST_IP" -n -z 7 -b -x "CRITICAL" -o "zoned-test-2.csv" "policy-example.csv" "rib-example.csv"
+        python3 firewall_autozoner.py -s -1 "SRC_IP" -2 "DEST_IP" -n -z 7 -b -x "CRITICAL" -o "zoned-test-2.csv" "policy-example.csv" "rib-example.csv"
         cmp --silent zoned-example-2.csv zoned-test-2.csv
-        python3 fw_autozoner.py -s -1 "SRC_IP" -2 "DEST_IP" -a -x "CRITICAL" -o "zoned-test-3.csv" "policy-example.csv" "rib-example.csv"
+        python3 firewall_autozoner.py -s -1 "SRC_IP" -2 "DEST_IP" -a -x "CRITICAL" -o "zoned-test-3.csv" "policy-example.csv" "rib-example.csv"
         cmp --silent zoned-example-3.csv zoned-test-3.csv
         
