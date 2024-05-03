@@ -71,3 +71,18 @@ options:
                         Logging message verbosity. Default: WARNING
 
 ```
+
+
+The script will add columns "*_ZONE" for destination and optionally source zones for each policy.
+
+To deal with firewall limits such as maximum number of zones in a policy, the script can optionally:
+
+1. Set the zone to "any" when more than N number of zones in a policy
+2. Set the zone to "any" when all zones in the routing table are present in a policy
+3. Split the policy when more than N number of zones are in a policy. The script will chunk the original list of zones in sets of N zones for each split policy, and even create all combinations of source chunks and destination chunks in case both columns exceed the limit. Split policies are marked as "true" in a special "SPLIT" column for identification.
+
+An example of the input .csv files are given in files **rib-example.csv** and **policy-example.csv**.
+
+### License
+
+This project is licensed under the [Apache-2.0 license](LICENSE).
