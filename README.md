@@ -32,6 +32,8 @@ Once this is obtained, the zones subtended by a subnet or ip-range can be obtain
 
 Flattening the routes takes about 5 minutes on a laptop processor for 900,000 routes (IPv4 FIRT); this can also be cached on disk between runs. The actual analysis then takes just a few seconds even with thousands of policies.
 
+## Object support
+
 The script supports a mix of IPv4 subnets (192.0.2.0/24), IPv4 ranges (192.0.2.10-192.0.2.100), IPv6 subnets (2001:db8::/64), and IPv6 ranges (2001:db8::10-2001:db8::100). Addresses lacking a slash prefix will be considered /32 or /128.
 
 ## Usage
