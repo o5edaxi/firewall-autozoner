@@ -44,7 +44,7 @@ def populate_linearized_fib(ribfile, sep):
         logging.debug('Analyzing line %s of rib file', line)
         try:
             rib_dict_list[ipver][item.prefixlen][item].add(line[1])
-            logging.info('ECMP/Duplicate route found, adding any extra zones: %s', line[0])
+            logging.debug('ECMP/Duplicate route found: %s', line[0])
         except KeyError:
             rib_dict_list[ipver][item.prefixlen][item] = {line[1]}
         logging.debug('Added to rib: %s', item)
@@ -53,7 +53,6 @@ def populate_linearized_fib(ribfile, sep):
     # Add a default if not present
     for ver, bits in IP_VERSIONS.items():
         if not rib_dict_list[ver][0]:
-            logging.info('Adding null route default since rib lacks a default route')
             rib_dict_list[ver][0][ipaddress.ip_network(bits[1])] = {'####NULL_ROUTED####'}
     """
     rib_dict_list[v4]:
@@ -112,8 +111,8 @@ def populate_linearized_fib(ribfile, sep):
                     if done:
                         break
                 if idx % 10000 == 0:
-                    logging.warning('Sliced %d of %d IPv%d routes in plen %d', idx, len(rib_dict_list[ver][plen]), ver,
-                                    plen)
+                    logging.warning('Sliced %d of %d IPv%d routes in plen level %d', idx, len(rib_dict_list[ver][plen]),
+                                    ver, plen)
     # Add all levels to one big dictionary preferring the higher prefix length entries
     logging.info('Done splitting routes')
     logging.info('Coalescing and sorting levels')
@@ -131,22 +130,28 @@ def populate_linearized_fib(ribfile, sep):
         rib_list[ver].sort(key=lambda x: x[0].network_address, reverse=False)
         for r in rib_list[ver]:
             fib_list[ver].append([int(r[0][0]), r[1]])
-            fib_list[ver].append([int(r[0][-1]), r[1]])
-            logging.debug('Added 2 points on the address line: %s %s', fib_list[ver][-2], fib_list[ver][-1])
+            logging.debug('Added start of route to the address line: %s', fib_list[ver][-1])
+            if r[0][-1] != r[0][0]:
+                fib_list[ver].append([int(r[0][-1]), r[1]])
+                logging.debug('Added end of route to the address line: %s', fib_list[ver][-1])
+            else:
+                logging.debug('Single IP route, not adding end to address line')
     fib_list_compressed = {ver: [] for ver in IP_VERSIONS}
     # Max 2 identical consecutive zones for efficiency
     # [ a_str, a_end, b_srt, b_end, b_srt, b_end, a_str, a_end ] -> [ a_str, a_end, b_srt, b_end, a_str, a_end ]
     logging.info('Compressing adjacent routes with the same interface on the fib')
-    prev = None
     for ver in IP_VERSIONS:
+        prev = [None, None]
         for idx, point in enumerate(fib_list[ver]):
             if point[1] != prev:
                 logging.debug('Interface change from %s to %s at address %s, marking it', prev, point[1], point[0])
-                if idx > 1:
+                if idx > 1 and fib_list_compressed[ver][-1] != fib_list[ver][idx -1]: # Don't add host routes twice
                     fib_list_compressed[ver].append(fib_list[ver][idx - 1])
                 fib_list_compressed[ver].append(point)
                 prev = point[1]
-        fib_list_compressed[ver].append(fib_list[ver][-1])
+        # Cap off the list if not
+        if fib_list_compressed[ver][-1] != fib_list[ver][-1]:
+            fib_list_compressed[ver].append(fib_list[ver][-1])
     logging.info('Done compressing fib')
     return fib_list_compressed
 
@@ -172,10 +177,18 @@ def zone_finder(netobj, fib, tot_zones, null_route):
             elif object_start == element[0]:
                 slice_start = idx
                 start_found = True
-        if start_found and object_end <= element[0]:
-            # Doing foolist[x:x+1] gives only 1 element
-            slice_end = idx
-            break
+        if start_found:
+            if object_end < element[0]:
+                # We are past the objective so by slicing list[x:y] we get only the zone at place y-1
+                slice_end = idx
+                break
+            elif object_end == element[0]:
+                # We are on the exact route delimiter, so we want to include it fully
+                slice_end = idx + 1
+                break
+    if slice_end == slice_start:
+        # List[x:x] doesn't return anything. Overslicing also doesn't cause any IndexError, so we can do list[x:x+1]
+        slice_end += 1
     zones = [x for y in fib[netobj_version][slice_start:slice_end] for x in y[1]]
     zones = list(set(zones))
     logging.debug('Checked all zones for subnet %s: %s', netobj, zones)
@@ -237,9 +250,20 @@ if __name__ == '__main__':
                                                                                   'zones instead of empty when a '
                                                                                   'destination has no matching routes. '
                                                                                   'Default: False')
-    parser.add_argument('-z', '--zone-limit', type=int, default=128, help='Output "any" when more than this amount of'
-                                                                          'zones are found for a given policy. Default:'
-                                                                          ' 128 zones')
+    parser.add_argument('-a', '--all-zones', action='store_true', default=False, help='Output "any" instead of each '
+                                                                                'individual zone when a given policy '
+                                                                                'contains every single zone in the '
+                                                                                'routing table. Default: False')
+    parser.add_argument('-z', '--zone-limit', type=int, default=0, help='Output "any" when more than this amount of '
+                                                                        'zones are found for a given policy. Default: '
+                                                                        'no limit')
+    parser.add_argument('-b', '--split-behavior', action='store_true', default=False, help='Split the policy instead of'
+                                                                                           ' outputting "any" when the '
+                                                                                           '--zone-limit value is '
+                                                                                           'exceeded. A column "SPLIT" '
+                                                                                           'is added to the output csv '
+                                                                                           'to mark the added policies.'
+                                                                                           ' Default: False')
     parser.add_argument('-1', '--source-column', type=str, default='source',
                         help='The column header in the csv corresponding to the source address column. Default: source')
     parser.add_argument('-2', '--destination-column', type=str, default='destination',
@@ -282,6 +306,10 @@ if __name__ == '__main__':
     with open(args.input, 'r', encoding='utf-8') as f:
         parsed = list(csv.reader(f, delimiter=args.csv_separator))
         logging.debug('%s', parsed)
+    if '####NULL_ROUTED####' in str(parsed):
+        logging.critical('Found protected string "####NULL_ROUTED####" in policy file. This zone is used internally '
+                         'and cannot be present. Exiting...')
+        sys.exit(1)
     if args.source:
         try:
             logging.info('Looking for source column %s', args.source_column)
@@ -318,6 +346,8 @@ if __name__ == '__main__':
     if SRC_INDEX:
         HEADER.insert(SRC_INDEX, f'{args.source_column}_ZONE')
     HEADER.insert(DEST_INDEX, f'{args.destination_column}_ZONE')
+    if args.split_behavior:
+        HEADER.append('SPLIT')
     output_list.append(HEADER)
     objects_list = []
     logging.info('Gathering all sources and destinations')
@@ -366,6 +396,11 @@ if __name__ == '__main__':
     for net_or_range in objects_list:
         logging.debug('Checking object %s', net_or_range)
         final_cache[net_or_range] = resolve_net_or_range(net_or_range)
+    total_zones_all_proto = set([x for xs in total_zones for x in total_zones[xs]])
+    try:
+        total_zones_all_proto.remove('####NULL_ROUTED####')
+    except KeyError:
+        pass
     for idx, row in enumerate(parsed[1:], start=1):
         logging.debug('Checking policy %s', row)
         if SRC_INDEX:
@@ -377,37 +412,101 @@ if __name__ == '__main__':
         for member in row[DEST_INDEX].split(args.address_separator):
             logging.debug('Checking destination address %s in policy', member)
             dest_zones += final_cache[member]
-        logging.info('Deduping and sorting zone list alphabetically')
+        logging.debug('Deduping and sorting zone list alphabetically')
         if SRC_INDEX:
             src_zones = list(set(src_zones))
             # Sort the zones alphabetically when the policy has multiple zones
             src_zones.sort()
-            if len(src_zones) > args.zone_limit:
-                logging.warning('Number of source zones %d for policy %s exceeds the configured maximum of %d, '
-                                'replacing with "any"', len(src_zones), row, args.zone_limit)
-                row.insert(SRC_INDEX, 'any')
+            any_check = set(src_zones)
+            try:
+                any_check.remove('####NULL_ROUTED####')
+            except KeyError:
+                pass
+            if args.all_zones and any_check == total_zones_all_proto:
+                logging.warning('Policy %s source contains all the zones, replacing with "any" due to -a flag', row)
+                row.insert(SRC_INDEX, [['any']])
+            elif args.zone_limit and len([s for s in src_zones if s != '####NULL_ROUTED####']) > args.zone_limit:
+                if args.split_behavior:
+                    logging.warning('Splitting policy %s due to -z and -b flag', row)
+                    chunks = []
+                    chunk = []
+                    for idx, zone in enumerate(src_zones, start=0):
+                        if idx != 0 and idx % args.zone_limit == 0:
+                            chunks.append(chunk)
+                            chunk = []
+                        chunk.append(zone)
+                    # Add the last little chunk if len < zone_limit
+                    if chunk:
+                        chunks.append(chunk)
+                    row.insert(SRC_INDEX, chunks)
+                else:
+                    logging.warning('Number of source zones %d for policy %s exceeds the configured maximum of %d, '
+                                    'replacing with "any"', len(src_zones), row, args.zone_limit)
+                    row.insert(SRC_INDEX, [['any']])
             else:
                 if not src_zones:
                     logging.warning('No source zones found for policy %s, probably missing routes', row)
-                row.insert(SRC_INDEX, args.address_separator.join(src_zones))
+                row.insert(SRC_INDEX, [src_zones])
         dest_zones = list(set(dest_zones))
         dest_zones.sort()
-        if len(dest_zones) > args.zone_limit:
-            logging.error('Number of destination zones %d for policy %s exceeds the configured maximum of %d, '
-                          'replacing with "any"', len(dest_zones), row, args.zone_limit)
-            row.insert(DEST_INDEX, 'any')
+        any_check = set(dest_zones)
+        try:
+            any_check.remove('####NULL_ROUTED####')
+        except KeyError:
+            pass
+        if args.all_zones and any_check == total_zones_all_proto:
+            logging.warning('Policy %s destination contains all the zones, replacing with "any" due to -a flag', row)
+            row.insert(DEST_INDEX, [['any']])
+        elif args.zone_limit and len([s for s in dest_zones if s != '####NULL_ROUTED####']) > args.zone_limit:
+            if args.split_behavior:
+                logging.warning('Splitting policy %s due to -z and -b flag', row)
+                chunks = []
+                chunk = []
+                for idx, zone in enumerate(dest_zones, start=0):
+                    if idx != 0 and idx % args.zone_limit == 0:
+                        chunks.append(chunk)
+                        chunk = []
+                    chunk.append(zone)
+                # Add the last little chunk if len < zone_limit
+                if chunk:
+                    chunks.append(chunk)
+                row.insert(DEST_INDEX, chunks)
+            else:
+                logging.warning('Number of destination zones %d for policy %s exceeds the configured maximum of %d, '
+                                'replacing with "any"', len(dest_zones), row, args.zone_limit)
+                row.insert(DEST_INDEX, [['any']])
         else:
             if not dest_zones:
                 logging.error('No destination zones found for policy %s, probably missing routes', row)
-            row.insert(DEST_INDEX, args.address_separator.join(dest_zones))
+            row.insert(DEST_INDEX, [dest_zones])
         if SRC_INDEX:
-            logging.debug('Source zones for policy %s:')
+            logging.debug('Source zones for policy %s:', row)
             logging.debug('%s', src_zones)
-        logging.debug('Destination zones for policy %s:')
+        logging.debug('Destination zones for policy %s:', row)
         logging.debug('%s', dest_zones)
         logging.debug('The final policy looks like:')
         logging.debug('%s', row)
-        output_list.append(row)
+        final_row = row.copy()
+        if SRC_INDEX:
+            if args.split_behavior:
+                if len(row[SRC_INDEX]) > 1 or len(row[DEST_INDEX]) > 1:
+                    final_row.append('true')
+                else:
+                    final_row.append('false')
+            for src_item in row[SRC_INDEX]:
+                final_row[SRC_INDEX] = args.address_separator.join(src_item)
+                for dest_item in row[DEST_INDEX]:
+                    final_row[DEST_INDEX] = args.address_separator.join(dest_item)
+                    output_list.append(final_row.copy())
+        else:
+            if args.split_behavior:
+                if len(row[DEST_INDEX]) > 1:
+                    final_row.append('true')
+                else:
+                    final_row.append('false')
+            for dest_item in row[DEST_INDEX]:
+                final_row[DEST_INDEX] = args.address_separator.join(dest_item)
+                output_list.append(final_row.copy())
         if idx % 1000 == 0:
             logging.warning('Done checking %d of %d policies', idx, len(parsed[1:]))
     logging.info('Writing csv to file %s', args.output_file)
