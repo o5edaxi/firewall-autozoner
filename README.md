@@ -35,7 +35,7 @@ Flattening the routes takes about 5 minutes on a laptop processor for 900-thousa
 ## Usage
 
 ```
-usage: fw_autozoner.py [-h] [-o OUTPUT_FILE] [-s] [-n] [-a] [-z ZONE_LIMIT] [-b] [-1 SOURCE_COLUMN]
+usage: firewall_autozoner.py [-h] [-o OUTPUT_FILE] [-s] [-n] [-a] [-z ZONE_LIMIT] [-b] [-1 SOURCE_COLUMN]
                        [-2 DESTINATION_COLUMN] [-c CSV_SEPARATOR] [-r ADDRESS_SEPARATOR] [-p]
                        [-x {DEBUG,INFO,WARNING,ERROR,CRITICAL}]
                        input rib
