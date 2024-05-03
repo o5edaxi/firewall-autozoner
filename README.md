@@ -86,7 +86,11 @@ To deal with firewall limits such as maximum number of zones in a policy, the sc
 2. Set the zone to "any" when all zones in the routing table are present in a policy
 3. Split the policy when more than N number of zones are in a policy. The script will chunk the original list of zones in sets of N zones for each split policy, and even create all combinations of source chunks and destination chunks in case both columns exceed the limit. Split policies are marked as "true" in a special "SPLIT" column for identification.
 
-An example of the input .csv files are given in files **rib-example.csv** and **policy-example.csv**. The route file can contain any string, both interfaces such as "ethernet1/1" or zone names such as "LAN". ECMP routes will be handled by combining and adding the zones from every identical route to the policies. Both IPv4 and IPv6 routes must be put in this single file, in any order.
+An example of the input .csv files are given in files **rib-example.csv** and **policy-example.csv**.
+
+## Route file
+
+The route file must be a csv equivalent of the FIB the actual dataplane uses for forwarding. The script does not apply any kind of tie breaker, metric, or administrative distance to the routes. It can contain any string, both interfaces such as "ethernet1/1" or zone names such as "LAN". ECMP routes will be handled by combining and adding the zones from every identical route to the policies. Both IPv4 and IPv6 routes must be put in this single file, in any order.
 
 ## Source zones
 
