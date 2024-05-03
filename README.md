@@ -30,7 +30,7 @@ routes = [ [ 0.0.0.0, 'ethernet1/1' ], [ 192.0.1.255, 'ethernet1/1' ], [ 192.0.2
 
 Once this is obtained, the zones subtended by a subnet or ip-range can be obtained with a simple slicing of the list, from the member just before the start of the range, to the one just after.
 
-Flattening the routes takes about 5 minutes on a laptop processor for 900-thousand routes (IPv4 FIRT); this can also be cached on disk between runs. The actual analysis then takes just a few seconds even with thousands of policies.
+Flattening the routes takes about 5 minutes on a laptop processor for 900,000 routes (IPv4 FIRT); this can also be cached on disk between runs. The actual analysis then takes just a few seconds even with thousands of policies.
 
 ## Usage
 
