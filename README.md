@@ -77,7 +77,8 @@ options:
 ```
 
 
-The script will add columns "*_ZONE" for destination and optionally source zones for each policy.
+
+The script will add columns **\*_ZONE** for destination and optionally source zones for each policy.
 
 To deal with firewall limits such as maximum number of zones in a policy, the script can optionally:
 
@@ -86,6 +87,10 @@ To deal with firewall limits such as maximum number of zones in a policy, the sc
 3. Split the policy when more than N number of zones are in a policy. The script will chunk the original list of zones in sets of N zones for each split policy, and even create all combinations of source chunks and destination chunks in case both columns exceed the limit. Split policies are marked as "true" in a special "SPLIT" column for identification.
 
 An example of the input .csv files are given in files **rib-example.csv** and **policy-example.csv**. The route file can contain any string, both interfaces such as "ethernet1/1" or zone names such as "LAN". ECMP routes will be handled by combining and adding the zones from every identical route to the policies. Both IPv4 and IPv6 routes must be put in this single file, in any order.
+
+## Source zones
+
+The script can optionally calculate source zones as well. This is only safe if the existing firewall already performs source address spoofing prevention. In reality, packets with any source can arrive at the firewall from any interface, and some firewalls may be letting these packets through. Consider this fact before adding source zone constraints to a firewall, as it is equivalent to implementing anti-spoofing and may lead to dropped traffic.
 
 ### License
 
