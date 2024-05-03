@@ -3,7 +3,7 @@ import subprocess
 import filecmp
 import sys
 
-SCRIPT = 'fw_autozoner.py'
+SCRIPT = 'firewall_autozoner.py'
 INPUT = 'policy-example.csv'
 INPUT_2 = 'rib-example.csv'
 
