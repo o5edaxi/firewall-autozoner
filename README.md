@@ -25,7 +25,7 @@ The interesting points are 0.0.0.0, 192.0.1.255, 192.0.2.0, 192.0.2.255, 192.0.3
 ```
 Flattened / linearized table:
 
-routes = [ [ 0.0.0.0, 'ethernet1/1' ] , [ 192.0.1.255, 'ethernet1/1' ], [ 192.0.2.0, 'ethernet1/2' ], [ 192.0.2.255, 'ethernet1/2' ] , [ 192.0.3.0 , 'ethernet1/1' ], [ 255.255.255.255 , 'ethernet1/1' ] ]
+routes = [ [ 0.0.0.0, 'ethernet1/1' ], [ 192.0.1.255, 'ethernet1/1' ], [ 192.0.2.0, 'ethernet1/2' ], [ 192.0.2.255, 'ethernet1/2' ], [ 192.0.3.0, 'ethernet1/1' ], [ 255.255.255.255, 'ethernet1/1' ] ]
 ```
 
 Once this is obtained, the zones subtended by a subnet or ip-range can be obtained with a simple slicing of the list, from the member just before the start of the range, to the one just after.
