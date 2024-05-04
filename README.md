@@ -90,7 +90,7 @@ An example of the input .csv files are given in files **rib-example.csv** and **
 
 ## Route file
 
-The route file must be a csv equivalent of the prefix and interface (next hop / neighbor information is not required) from the FIB the actual dataplane uses for forwarding. The script does not apply any kind of tie breaker, metric, or administrative distance to the routes. It can contain any string, both interfaces such as "ethernet1/1" or zone names such as "LAN". ECMP routes will be handled by combining and adding the zones from every identical route to the policies. Both IPv4 and IPv6 routes must be put in this single file, in any order.
+The route file must be a csv equivalent of the prefix and interface (next hop / neighbor information is not required) from the FIB the actual dataplane uses for forwarding. The script does not apply any kind of tie breaker, metric, or administrative distance to the routes apart from longest match. It can contain any string, both interfaces such as "ethernet1/1" or zone names such as "LAN". ECMP routes will be handled by combining and adding the zones from every identical route to the policies. Both IPv4 and IPv6 routes must be put in this single file, in any order.
 
 ## Source zones
 
