@@ -145,7 +145,7 @@ def populate_linearized_fib(ribfile, sep):
         for idx, point in enumerate(fib_list[ver]):
             if point[1] != prev:
                 logging.debug('Interface change from %s to %s at address %s, marking it', prev, point[1], point[0])
-                if idx > 1 and fib_list_compressed[ver][-1] != fib_list[ver][idx - 1]: # Don't add host routes twice
+                if idx > 1 and fib_list_compressed[ver][-1] != fib_list[ver][idx - 1]:  # Don't add host routes twice
                     fib_list_compressed[ver].append(fib_list[ver][idx - 1])
                 fib_list_compressed[ver].append(point)
                 prev = point[1]
@@ -163,7 +163,7 @@ def zone_finder(netobj, fib, tot_zones, null_route):
         logging.debug('Checking network %s', netobj)
         netobj_version = netobj.version
         if netobj.prefixlen == 0:
-            logging.debug('Object is /0 so contains all zones in the IPv%d FIB', netobj.version)
+            logging.debug('Object is /0 so contains all zones in the IPv%d FIB', netobj_version)
             return tot_zones[netobj_version]
         object_start = int(netobj.network_address)
         object_end = int(netobj.broadcast_address)
@@ -172,6 +172,9 @@ def zone_finder(netobj, fib, tot_zones, null_route):
         netobj_version = netobj[0].version
         object_start = int(netobj[0])
         object_end = int(netobj[1])
+        if object_start == 0 and object_end == (2 ** IP_VERSIONS[netobj_version][0] - 1):
+            logging.debug('Range contains all address space so contains all zones in the IPv%d FIB', netobj_version)
+            return tot_zones[netobj_version]
     logging.debug('Object is IPv%d', netobj_version)
     logging.debug('Looking up possible routes for object %s', netobj)
     slice_start = 0
