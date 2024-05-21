@@ -5,12 +5,14 @@ import sys
 import argparse
 import logging
 import ipaddress
+import re
 import pickle
 
 
 MAX_WAIT_SECONDS = 3600
 IP_VERSIONS = {4: (32, '0.0.0.0/0'), 6: (128, '::/0')}
 FIB_DISK_CACHE = 'pickle_fib.pkl'
+IP_SANITY_REGEX = re.compile(r'^[0-9a-fA-F:./-]+$')
 
 
 def populate_linearized_fib(ribfile, sep):
@@ -334,8 +336,18 @@ if __name__ == '__main__':
     for idx, row in enumerate(parsed[1:], start=1):
         if SRC_INDEX:
             for member in row[SRC_INDEX].split(args.address_separator):
+                logging.debug('Found %s in rulebase at line %d', member, idx)
+                if not member or not IP_SANITY_REGEX.match(member):
+                    logging.critical('ERROR: Found corrupt or empty object "%s" at line %d and source column %d: %s',
+                                     member, idx, SRC_INDEX, row)
+                    sys.exit(1)
                 objects_list.append(member)
         for member in row[DEST_INDEX].split(args.address_separator):
+            logging.debug('Found %s in rulebase at line %d', member, idx)
+            if not member or not IP_SANITY_REGEX.match(member):
+                    logging.critical('ERROR: Found corrupt or empty object "%s" at line %d and destination column %d: '
+                                     '%s', member, idx, DEST_INDEX, row)
+                    sys.exit(1)
             objects_list.append(member)
         if idx % 1000 == 0:
             logging.warning('Searched %d of %d policies for objects', idx, len(parsed[1:]))
@@ -350,6 +362,7 @@ if __name__ == '__main__':
             range_end = ipaddress.ip_address(range_check[1])
             range_list[range_start.version].append((range_start, range_end))
         else:
+            logging.debug('Converting string %s to network object', objec)
             objec_obj = ipaddress.ip_network(objec, strict=False)
             exploded_list[objec_obj.version].append(objec_obj)
     # Deduplicate
@@ -363,7 +376,8 @@ if __name__ == '__main__':
     express_cache = {}
     for ver in IP_VERSIONS:
         done = set()
-        cur_plen = exploded_list[ver][0].prefixlen
+        if exploded_list[ver]:
+            cur_plen = exploded_list[ver][0].prefixlen
         for idx, obj in enumerate(exploded_list[ver], start=1):
             if idx % 100 == 0:
                 logging.warning('Resolved %d of %d IPv%d objects', idx, len(exploded_list[ver]), ver)
