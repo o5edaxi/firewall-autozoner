@@ -5,12 +5,14 @@ import sys
 import argparse
 import logging
 import ipaddress
+import re
 import pickle
 
 
 MAX_WAIT_SECONDS = 3600
 IP_VERSIONS = {4: (32, '0.0.0.0/0'), 6: (128, '::/0')}
 FIB_DISK_CACHE = 'pickle_fib.pkl'
+IP_SANITY_REGEX = re.compile(r'^[0-9a-fA-F:./-]+$')
 
 
 def populate_linearized_fib(ribfile, sep):
@@ -145,7 +147,7 @@ def populate_linearized_fib(ribfile, sep):
         for idx, point in enumerate(fib_list[ver]):
             if point[1] != prev:
                 logging.debug('Interface change from %s to %s at address %s, marking it', prev, point[1], point[0])
-                if idx > 1 and fib_list_compressed[ver][-1] != fib_list[ver][idx -1]: # Don't add host routes twice
+                if idx > 1 and fib_list_compressed[ver][-1] != fib_list[ver][idx - 1]:  # Don't add host routes twice
                     fib_list_compressed[ver].append(fib_list[ver][idx - 1])
                 fib_list_compressed[ver].append(point)
                 prev = point[1]
@@ -157,15 +159,26 @@ def populate_linearized_fib(ribfile, sep):
 
 
 def zone_finder(netobj, fib, tot_zones, null_route):
-    """Takes an ipaddress network and returns the possible interfaces or zones those packets might be forwarded out
-    of, based on a pseudo fib"""
-    netobj_version = netobj.version
-    if netobj.prefixlen == 0:
-        return tot_zones[netobj_version]
+    """Takes an object and returns the possible interfaces or zones those packets might be forwarded out
+    of, based on a pseudo fib. Accepts ip_network object or a range as (ip_address, ip_address)"""
+    if type(netobj) != tuple:
+        logging.debug('Checking network %s', netobj)
+        netobj_version = netobj.version
+        if netobj.prefixlen == 0:
+            logging.debug('Object is /0 so contains all zones in the IPv%d FIB', netobj_version)
+            return tot_zones[netobj_version]
+        object_start = int(netobj.network_address)
+        object_end = int(netobj.broadcast_address)
+    else:
+        logging.debug('Checking range %s', netobj)
+        netobj_version = netobj[0].version
+        object_start = int(netobj[0])
+        object_end = int(netobj[1])
+        if object_start == 0 and object_end == (2 ** IP_VERSIONS[netobj_version][0] - 1):
+            logging.debug('Range contains all address space so contains all zones in the IPv%d FIB', netobj_version)
+            return tot_zones[netobj_version]
     logging.debug('Object is IPv%d', netobj_version)
-    logging.debug('Looking up possible routes for network %s', netobj)
-    object_start = int(netobj[0])
-    object_end = int(netobj[-1])
+    logging.debug('Looking up possible routes for object %s', netobj)
     slice_start = 0
     slice_end = None
     start_found = False
@@ -191,7 +204,7 @@ def zone_finder(netobj, fib, tot_zones, null_route):
         slice_end += 1
     zones = [x for y in fib[netobj_version][slice_start:slice_end] for x in y[1]]
     zones = list(set(zones))
-    logging.debug('Checked all zones for subnet %s: %s', netobj, zones)
+    logging.debug('Checked all zones for object %s: %s', netobj, zones)
     if '####NULL_ROUTED####' in zones:
         if len(zones) == 1:
             logging.warning('No destinations in %s match an existing route', netobj)
@@ -200,37 +213,6 @@ def zone_finder(netobj, fib, tot_zones, null_route):
         if not null_route:
             zones.remove('####NULL_ROUTED####')
     return zones
-
-
-def resolve_net_or_range(net_or_range):
-    """Takes a subnet or range and looks it up in express_cache{}"""
-    # Handle IP Ranges e.g. 192.0.2.1-192.0.2.10 by converting to networks
-    range_check = net_or_range.split('-')
-    if len(range_check) == 2:
-        logging.debug('Detected IP range %s, splitting into subnets', range_check)
-        range_start = ipaddress.ip_address(range_check[0])
-        range_end = ipaddress.ip_address(range_check[1])
-        partial_zones = []
-        for subnet in ipaddress.summarize_address_range(range_start, range_end):
-            logging.debug('Checking subnet %s part of range', subnet)
-            net = ipaddress.ip_network(subnet, strict=False)
-            partial_zones += express_cache[net]
-        return partial_zones
-    net = ipaddress.ip_network(net_or_range, strict=False)
-    logging.debug('Checking subnet %s', net)
-    return express_cache[net]
-
-
-def explode_object(net_or_range):
-    """Takes a subnet or IP range, turns it into subnets if needed and outputs as list of IPvXNetwork()"""
-    # Handle IP Ranges e.g. 192.0.2.1-192.0.2.10 by converting to networks
-    range_check = net_or_range.split('-')
-    if len(range_check) == 2:
-        logging.debug('Detected IP range %s, splitting into subnets', range_check)
-        range_start = ipaddress.ip_address(range_check[0])
-        range_end = ipaddress.ip_address(range_check[1])
-        return ipaddress.summarize_address_range(range_start, range_end)
-    return [ipaddress.ip_network(net_or_range, strict=False)]
 
 
 if __name__ == '__main__':
@@ -354,48 +336,107 @@ if __name__ == '__main__':
     for idx, row in enumerate(parsed[1:], start=1):
         if SRC_INDEX:
             for member in row[SRC_INDEX].split(args.address_separator):
+                logging.debug('Found %s in rulebase at line %d', member, idx)
+                if not member or not IP_SANITY_REGEX.match(member):
+                    logging.critical('ERROR: Found corrupt or empty object "%s" at line %d and source column %d: %s',
+                                     member, idx, SRC_INDEX, row)
+                    sys.exit(1)
                 objects_list.append(member)
         for member in row[DEST_INDEX].split(args.address_separator):
+            logging.debug('Found %s in rulebase at line %d', member, idx)
+            if not member or not IP_SANITY_REGEX.match(member):
+                    logging.critical('ERROR: Found corrupt or empty object "%s" at line %d and destination column %d: '
+                                     '%s', member, idx, DEST_INDEX, row)
+                    sys.exit(1)
             objects_list.append(member)
         if idx % 1000 == 0:
             logging.warning('Searched %d of %d policies for objects', idx, len(parsed[1:]))
     objects_list = list(set(objects_list))
-    exploded_list = []
+    exploded_list = {ver: [] for ver in IP_VERSIONS}
+    range_list = {ver: [] for ver in IP_VERSIONS}
     for objec in objects_list:
-        exploded_list += explode_object(objec)
-    exploded_list = list(set(exploded_list))
-    # Order by increasing prefix length
-    exploded_list.sort(key=lambda x: x.prefixlen)
+        range_check = objec.split('-')
+        if len(range_check) == 2:
+            logging.debug('Detected IP range %s, converting to tuple', range_check)
+            range_start = ipaddress.ip_address(range_check[0])
+            range_end = ipaddress.ip_address(range_check[1])
+            range_list[range_start.version].append((range_start, range_end))
+        else:
+            logging.debug('Converting string %s to network object', objec)
+            objec_obj = ipaddress.ip_network(objec, strict=False)
+            exploded_list[objec_obj.version].append(objec_obj)
+    # Deduplicate
+    exploded_list = {ver: list(set(l)) for ver, l in exploded_list.items()}
+    range_list = {ver: list(set(l)) for ver, l in range_list.items()}
+    # Order by increasing prefix length and increasing range size while keeping ranges separate
+    for ver in IP_VERSIONS:
+        exploded_list[ver].sort(key=lambda x: x.prefixlen)
+        range_list[ver].sort(key=lambda x: int(x[1]) - int(x[0]), reverse=True)
     logging.info('Resolving all objects found in policies')
     express_cache = {}
-    done = set()
-    cur_plen = exploded_list[0].prefixlen
-    for idx, obj in enumerate(exploded_list, start=1):
-        if idx % 100 == 0:
-            logging.warning('Resolved %d of %d objects', idx, len(exploded_list))
-        if obj.prefixlen != cur_plen:
-            # Done with previous plength. Search all objects of that plength for single-zone objects
-            # If larger subnet resolves to 1 zone only, it is also valid for all smaller subnets contained in it
-            for ob in exploded_list:
-                if ob.prefixlen == cur_plen and len(express_cache[ob]) == 1:
-                    for o in exploded_list:
-                        if o not in done and o.prefixlen > ob.prefixlen and o.overlaps(ob):
-                            logging.info('Object %s is guaranteed to resolve to the same zones as %s which covers '
-                                         'it, will skip analysis', o, ob)
-                            express_cache[o] = express_cache[ob]
-                            done.add(o)
-        cur_plen = obj.prefixlen
-        if obj in done:
-            logging.info('Zones for object %s inherited from covering object already analyzed, skipping', obj)
-            continue
-        express_cache[obj] = zone_finder(obj, fib_table, total_zones, args.null_route)
-        done.add(obj)
-    logging.info('Finished resolving raw objects')
-    logging.info('Reassembling any IP Ranges and building the final lookup table')
+    for ver in IP_VERSIONS:
+        done = set()
+        if exploded_list[ver]:
+            cur_plen = exploded_list[ver][0].prefixlen
+        for idx, obj in enumerate(exploded_list[ver], start=1):
+            if idx % 100 == 0:
+                logging.warning('Resolved %d of %d IPv%d objects', idx, len(exploded_list[ver]), ver)
+            if obj.prefixlen != cur_plen:
+                # Done with previous plength. Search all objects of that plength for single-zone objects
+                # If larger subnet resolves to 1 zone only, it is also valid for all smaller subnets contained in it
+                for ob in exploded_list[ver]:
+                    if ob.prefixlen == cur_plen and len(express_cache[ob]) == 1:
+                        # Check for networks we can skip
+                        ob_prefixlen = ob.prefixlen
+                        ob_network_address = ob.network_address
+                        ob_broadcast_address = ob.broadcast_address
+                        for o in exploded_list[ver]:
+                            if o not in done and o.prefixlen > ob_prefixlen and o.overlaps(ob):
+                                logging.info('Object %s is guaranteed to resolve to the same zones as %s which covers '
+                                             'it, will skip analysis', o, ob)
+                                express_cache[o] = express_cache[ob]
+                                done.add(o)
+                        # Check ranges while we're at it
+                        for r in range_list[ver]:
+                            if r not in done and r[0] >= ob_network_address and r[1] <= ob_broadcast_address:
+                                logging.info('Range object %s is guaranteed to resolve to the same zones as %s which '
+                                             'covers it, will skip analysis', r, ob)
+                                express_cache[r] = express_cache[ob]
+                                done.add(r)
+            cur_plen = obj.prefixlen
+            if obj in done:
+                logging.info('Zones for object %s inherited from covering object already analyzed, skipping', obj)
+                continue
+            express_cache[obj] = zone_finder(obj, fib_table, total_zones, args.null_route)
+            done.add(obj)
+        logging.info('Resolving ranges...')
+        for idx, rng in enumerate(range_list[ver], start=1):
+            if idx % 100 == 0:
+                logging.warning('Resolved %d of %d range objects', idx, len(range_list[ver]))
+            if rng in done:
+                logging.info('Zones for range object %s inherited from covering object already analyzed, skipping', rng)
+                continue
+            express_cache[rng] = zone_finder(rng, fib_table, total_zones, args.null_route)
+            done.add(rng)
+            # If single zone range, check if results can apply to covered ranges
+            if len(express_cache[rng]) == 1:
+                for r in range_list[ver]:
+                    if r not in done and r[0] >= rng[0] and r[1] <= rng[1]:
+                        logging.info('Range object %s is guaranteed to resolve to the same zones as %s which covers it,'
+                                     ' will skip analysis', r, rng)
+                        express_cache[r] = express_cache[rng]
+                        done.add(r)
+    logging.info('Finished resolving objects')
+    logging.info('Building the final lookup table')
     final_cache = {}
     for net_or_range in objects_list:
-        logging.debug('Checking object %s', net_or_range)
-        final_cache[net_or_range] = resolve_net_or_range(net_or_range)
+        logging.debug('Checking string %s in the partial cache', net_or_range)
+        range_check = net_or_range.split('-')
+        if len(range_check) == 2:
+            final_cache[net_or_range] = express_cache[(ipaddress.ip_address(range_check[0]),
+                                                       ipaddress.ip_address(range_check[1]))]
+        else:
+            final_cache[net_or_range] = express_cache[ipaddress.ip_network(net_or_range, strict=False)]
     total_zones_all_proto = set([x for xs in total_zones for x in total_zones[xs]])
     try:
         total_zones_all_proto.remove('####NULL_ROUTED####')
